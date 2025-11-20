@@ -1,0 +1,14 @@
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
+import LoginForm from "./login-form";
+
+export default async function LoginPage() {
+  const currentUser = await getCurrentUser();
+
+  if (currentUser) {
+    redirect("/");
+  }
+
+  return <LoginForm />;
+}
+
