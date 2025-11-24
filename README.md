@@ -1,265 +1,321 @@
-# RapidEat – Restaurant Discovery Platform
+# RapidEat — Render.com 
 
-A modern restaurant discovery application inspired by Zomato/Swiggy, built with Next.js 16 and featuring real-time search, advanced filtering, authentication, and MongoDB integration.
+> Single-file guide + ready-to-use config snippets for deploying the RapidEat Next.js app to Render. Includes `render.yaml`, `Dockerfile`, env var checklist, seeding options, and troubleshooting notes. Drop this file in your repo (e.g. `render-deploy.md`) and follow the steps.
 
-## 🚀 Features
+---
 
-### 🔍 Search & Filtering
-- **Real-time Search**: Search restaurants by name, description, locality, or cuisine
-- **Multi-Select Cuisine Filter**: Filter by one or multiple cuisines (38+ cuisine types available)
-- **Rating Filter**: Minimum rating slider (0-5 stars)
-- **Cost Filter**: Maximum cost for two with slider (₹0-₹2000) and quick presets (₹300, ₹600, ₹1000, ₹1500)
-- **Smart Filtering**: All filters work together (AND logic) for precise results
-- **Active Filter Badges**: Visual indicators showing applied filters with easy removal
+## Summary
 
-### 📊 Sorting Options
-- **Relevance**: Default sorting
-- **Top Rated**: Highest rated restaurants first
-- **Fastest Delivery**: Sort by delivery time
-- **Price: Low to High**: Sort by cost for two
+This single-file guide contains everything needed to deploy RapidEat to Render as a production web service. It provides two deployment approaches and includes sample configuration files you can paste directly into your repository:
 
-### 🎨 User Interface
-- **Infinite Scroll**: Automatically loads 12 restaurants per batch as you scroll
-- **Dark Mode**: Toggle between light and dark themes
-- **Responsive Design**: Optimized for mobile, tablet, and desktop
-- **Loading States**: Skeleton placeholders during data fetch
-- **Stats Dashboard**: View total restaurants, top-rated count, pure veg count, and available cuisines
+1. **Docker build** (recommended): Full control and parity with local dev. Use the included `Dockerfile` and `render.yaml` service definition.
+2. **Node build (auto-build on Render)**: Use Render's built-in build step (no Docker). Simpler but less reproducible across environments.
 
-### 🔐 Authentication System
-- **User Registration**: 
-  - Email validation with Zod schema
-  - Password strength requirement (minimum 8 characters)
-  - Password confirmation matching
-  - Automatic login after successful registration
-- **User Login**: 
-  - Email and password authentication
-  - Session token rotation for security
-  - Automatic redirect to home page
-- **Session Management**:
-  - Secure HTTP-only cookies
-  - HMAC-SHA256 token hashing
-  - Configurable session expiry (default: 7 days)
-  - MongoDB-backed session storage
-- **Access Control**:
-  - Protected routes with server-side guards
-  - Role-based access (user, admin)
-  - Automatic redirects for unauthenticated/unauthorized users
-- **Logout**: Secure session destruction and cookie cleanup
+Also included:
 
-### 📦 Data Management
-- **MongoDB Integration**: Full CRUD support with cached connections
-- **Fallback System**: Automatic fallback to JSON data if MongoDB unavailable
-- **21 Sample Restaurants**: Curated dataset with diverse cuisines and ratings
-- **Type Safety**: Full TypeScript support with shared type definitions
+* `render.yaml` for Render's Infrastructure-as-Code (web service + optional Cron job seed)
+* A `Dockerfile` tuned for Next.js 16 (App Router) + Node 20 (recommended)
+* `.renderignore` example
+* Environment variables checklist
+* Seed & migration strategies
+* Health checks, startup commands, and production tips
 
-## 🛠️ Tech Stack
+---
 
-- **Framework**: Next.js 16 (App Router)
-- **UI Library**: React 19
-- **Styling**: Tailwind CSS v4
-- **Database**: MongoDB with Node.js driver
-- **Authentication**: bcryptjs for password hashing
-- **Validation**: Zod for schema validation
-- **Icons**: Lucide React
-- **Fonts**: Geist Sans & Geist Mono
+## Before you start
 
-## 📋 Prerequisites
+1. Ensure your repository contains the full RapidEat project (root contains `package.json`, `app/`, `next.config.js` or any Next 16 config, `scripts/seed.mjs`, `data/restaurants.json` etc.).
+2. Create a Render account and connect the Git repo (GitHub/GitLab/Bitbucket).
+3. Provision a MongoDB instance (Atlas, MongoDB Atlas is recommended). Note the connection string.
+4. Decide whether you want to use Render managed Postgres (not required) or just the web service + MongoDB Atlas.
 
-- Node.js 18+ (20.19+ recommended for MongoDB driver)
-- MongoDB instance (optional - app works with fallback data)
-- npm or yarn
+---
 
-## 🏃 Getting Started
+## Recommended production stack on Render
 
-### 1. Install Dependencies
+* **Service type**: Web Service (Docker recommended)
+* **Instance**: Starter or Standard (scale up CPU/memory for more users; Next.js SSR requires more memory)
+* **Build Command** (if not using Docker): `npm ci && npm run build`
+* **Start Command** (if not using Docker): `npm start`
+* **Port**: Render exposes `$PORT` env var; app should listen on `process.env.PORT || 3000`.
 
-```bash
-npm install
+---
+
+## Option A — Docker (recommended)
+
+### Dockerfile (paste into repo as `Dockerfile`)
+
+```dockerfile
+# Use Node 20 base image (recommended for MongoDB driver compatibility)
+FROM node:20-alpine AS base
+WORKDIR /app
+
+# Install dependencies first for caching
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+# choose npm by default
+RUN npm ci --silent
+
+# Copy project files
+COPY . .
+
+# Build Next.js app
+RUN npm run build
+
+# Production image
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy deps + build output
+COPY --from=base /app/node_modules ./node_modules
+COPY --from=base /app/.next ./.next
+COPY --from=base /app/public ./public
+COPY --from=base /app/next.config.mjs ./next.config.mjs
+COPY --from=base /app/package.json ./package.json
+
+# If using a custom server, copy that too
+# COPY server.js ./server.js
+
+# Expose port (Render provides $PORT at runtime)
+EXPOSE 3000
+
+CMD ["node", "./node_modules/.bin/next", "start"]
 ```
 
-### 2. Environment Configuration
+**Notes**:
 
-Create a `.env.local` file in the root directory:
+* This Dockerfile builds the Next.js app and starts with `next start`. If you use a custom Node/Express server, update the `CMD` accordingly.
+* Ensure `next.config.mjs` or `next.config.js` is present and compatible with production.
 
-```env
-# MongoDB Configuration (Optional)
-MONGODB_URI="mongodb+srv://user:pass@cluster.mongodb.net"
-MONGODB_DB="resto-app"
-MONGODB_COLLECTION="restaurants"
+---
 
-# Authentication Configuration
-AUTH_SECRET="your-random-32-character-secret-key-here"
-AUTH_SESSION_COOKIE="rapideat_session"
-AUTH_SESSION_TTL_DAYS="7"
+## Option B — Render managed Node build (no Docker)
 
-# Optional: Custom Collection Names
-AUTH_USERS_COLLECTION="users"
-AUTH_SESSIONS_COLLECTION="sessions"
+If you prefer, create a Web Service on Render with the following settings:
+
+* **Environment**: `Node` (select Node 20)
+* **Build Command**: `npm ci && npm run build`
+* **Start Command**: `npm start`
+* **Health Check Path**: `/api/health` (you can create a minimal route that returns 200)
+
+This approach uses Render's build environment and runs `npm start` to serve the production Next app.
+
+---
+
+## render.yaml (example IaC for Render)
+
+Create `render.yaml` in repo root — Render will detect it and create services automatically when you connect the repo.
+
+```yaml
+services:
+  - type: web
+    name: rapideat-web
+    env: docker # change to "node" for non-docker
+    region: oregon
+    plan: starter
+    repo: <REPO-URL>
+    branch: main
+    dockerfilePath: Dockerfile
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: MONGODB_URI
+        scope: env
+      - key: MONGODB_DB
+        scope: env
+      - key: AUTH_SECRET
+        scope: env
+      - key: AUTH_SESSION_COOKIE
+        scope: env
+      - key: AUTH_SESSION_TTL_DAYS
+        scope: env
+    healthCheckPath: /api/health
+    autoDeploy: true
+
+cron:
+  - name: rapideat-seed
+    schedule: "@once"
+    command: npm run seed
+    env:
+      - key: MONGODB_URI
+        scope: env
+      - key: MONGODB_DB
+        scope: env
 ```
 
-**Note**: If MongoDB is not configured, the app will automatically use the bundled JSON dataset (`data/restaurants.json`).
+**Adjust** `repo: <REPO-URL>` and `region` as needed. The `cron` entry demonstrates an ad-hoc seed job you can run once to populate the DB.
 
-### 3. Seed Database (Optional)
+---
 
-If you have MongoDB configured, seed the database with sample data:
-
-```bash
-npm run seed
-```
-
-This will:
-- Clear existing restaurant data
-- Insert 21 sample restaurants from `data/restaurants.json`
-
-### 4. Start Development Server
-
-```bash
-npm run dev
-```
-
-Visit [http://localhost:3000](http://localhost:3000) to see the application.
-
-## 📁 Project Structure
+## .renderignore (optional)
 
 ```
-resto-app/
-├── app/
-│   ├── actions/
-│   │   ├── auth.ts          # Server actions for register/login/logout
-│   │   └── auth-state.ts    # Auth form state types
-│   ├── api/
-│   │   └── restaurants/
-│   │       └── route.ts      # REST API endpoint with filtering
-│   ├── auth/
-│   │   ├── layout.tsx        # Auth pages layout
-│   │   ├── login/            # Login page and form
-│   │   ├── register/         # Registration page and form
-│   │   └── logout/           # Logout handler
-│   ├── page.tsx              # Home page (protected route)
-│   ├── layout.tsx             # Root layout
-│   └── globals.css            # Global styles
-├── components/
-│   └── home/
-│       └── home-client.tsx    # Main restaurant listing component
-├── data/
-│   ├── restaurants.json      # Sample restaurant data (21 items)
-│   └── restaurants.ts        # TypeScript wrapper for data
-├── lib/
-│   ├── auth.ts               # Authentication utilities
-│   └── mongodb.ts            # MongoDB connection helpers
-├── scripts/
-│   └── seed.mjs              # Database seeding script
-└── types/
-    ├── restaurant.ts         # Restaurant type definitions
-    └── user.ts               # User and session types
+node_modules
+.vscode
+.env.local
+.env.*
+.DS_Store
+.git
 ```
 
-## 🔑 Authentication Flow
+---
 
-### Registration (`/auth/register`)
-1. User fills form (name, email, password, confirm password)
-2. Client-side validation with Zod schema
-3. Server action validates and hashes password with bcryptjs
-4. User created in MongoDB `users` collection
-5. Session created and cookie set
-6. User redirected to home page
+---
 
-### Login (`/auth/login`)
-1. User enters email and password
-2. Server action validates credentials
-3. Password verified against stored hash
-4. New session token generated (token rotation)
-5. Session stored in MongoDB `sessions` collection
-6. Cookie set and user redirected to home page
+## Seeding the database
 
-### Protected Routes
-- Home page (`/`) requires authentication
-- Only users with `user` or `admin` roles can access
-- Unauthenticated users redirected to `/auth/login?reason=unauthenticated`
-- Unauthorized users redirected to `/auth/login?reason=unauthorised`
+Two options:
 
-### Logout (`/auth/logout`)
-1. Server action destroys session in MongoDB
-2. Cookie cleared
-3. Page revalidated
-4. User redirected to login page
+1. **Run seed on Render via `render.yaml` cron**: the included `cron` block will run `npm run seed` once if you want to seed during deployment. Make sure the `seed` script in `package.json` points to `node scripts/seed.mjs` or similar.
+2. **Run seed locally**: `npm run seed` with `MONGODB_URI` env var set to your Atlas connection string.
 
-## 🔍 Filtering System
+**Alternative**: Expose a protected server-side route `/api/internal/seed` and call it once manually (not recommended in public repos; prefer protected cron or manual CLI run).
 
-### API Endpoint: `/api/restaurants`
+---
 
-**Query Parameters:**
-- `q` - Search query (matches name, description, locality, cuisines)
-- `cuisine` - Cuisine filter (can be multiple: `?cuisine=Italian&cuisine=Pizza`)
-- `minRating` - Minimum rating (0-5)
-- `maxCost` - Maximum cost for two (₹)
+## Health check endpoint
 
-**Example:**
-```
-GET /api/restaurants?q=pizza&cuisine=Italian&minRating=4.0&maxCost=600
+Create a lightweight endpoint at `/api/health` that returns `200 OK` and optionally sanity-checks MongoDB connection. Render will use this for health checks.
+
+Example (Node/Next API):
+
+```ts
+// app/api/health/route.ts (Next 16)
+import { NextResponse } from 'next/server'
+export async function GET() {
+  return NextResponse.json({ status: 'ok' })
+}
 ```
 
-### Client-Side Filtering
-- Filters applied in real-time as user interacts
-- Results update instantly without page reload
-- All filters combined with AND logic
-- Page resets to 1 when filters change
-- Infinite scroll works with filtered results
+You can optionally test DB connection in this endpoint but keep it fast.
 
-## 🚢 Deployment
+---
 
-### Environment Variables
-Set all environment variables in your hosting provider:
-- Vercel: Project Settings → Environment Variables
-- Other platforms: Follow their environment variable configuration
+## Port & process considerations
 
-### Build & Start
-```bash
-npm run build
-npm start
+* Render provides a dynamic `$PORT` environment variable. Your server should listen on `process.env.PORT || 3000` (Next's `next start` uses the port passed by Render). If using a custom server, make sure to bind to `process.env.PORT`.
+
+---
+
+## CORS, Cookies & Domains
+
+* Set `NEXT_PUBLIC_SITE_URL` to `https://rapideat.onrender.com` (or your custom domain).
+* Session cookies should be `Secure; HttpOnly; SameSite=Lax`. Render uses HTTPS by default for managed domains.
+* When setting cookie domain, prefer the root domain (example: `.yourdomain.com`) if using subdomains.
+
+---
+
+## Custom Domain & TLS
+
+1. In Render dashboard → your service → Custom Domains → Add `rapideat.onrender.com` (or your own domain).
+2. Add DNS CNAME/A records according to Render's instructions.
+3. Render auto-provisions TLS certs via Let's Encrypt.
+
+---
+
+## Logging & Monitoring
+
+* Logs: Render captures stdout/stderr. Use `console.info/warn/error` server-side to surface logs.
+* Metrics: If you need deeper metrics, add Prometheus exporters or use Render's built-in metrics.
+
+---
+
+## Recommended `package.json` scripts
+
+Make sure your `package.json` includes these scripts:
+
+```json
+"scripts": {
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start -p $PORT",
+  "seed": "node scripts/seed.mjs"
+}
 ```
 
-### MongoDB Connection
-- Ensure MongoDB URI is accessible from your hosting provider
-- Whitelist your hosting provider's IP in MongoDB Atlas (if using Atlas)
-- App gracefully falls back to JSON data if MongoDB unavailable
+`next start -p $PORT` ensures the process honors Render's dynamic port.
 
-### Recommended Platforms
-- **Vercel**: Optimized for Next.js, automatic deployments
-- **Netlify**: Good Next.js support
-- **Railway**: Easy MongoDB integration
-- **Render**: Full-stack deployment support
+---
 
-## 📊 Sample Data
+## Example `scripts/seed.mjs`
 
-The app includes 21 sample restaurants with:
-- Diverse cuisines (38 unique types)
-- Ratings from 4.0 to 4.9
-- Cost range: ₹200 - ₹900
-- Mix of pure veg and non-veg options
-- Various delivery times and locations
+Ensure your seed script reads `MONGODB_URI` from env and exits cleanly.
 
-## 🔧 Available Scripts
+```js
+// scripts/seed.mjs
+import { MongoClient } from 'mongodb'
+import restaurants from '../data/restaurants.json' assert { type: 'json' }
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run start` - Start production server
-- `npm run lint` - Run ESLint
-- `npm run seed` - Seed MongoDB with sample data
+const uri = process.env.MONGODB_URI
+if (!uri) throw new Error('MONGODB_URI not set')
 
-## 📝 Notes
+const client = new MongoClient(uri)
+await client.connect()
+const db = client.db(process.env.MONGODB_DB || 'resto-app')
+const col = db.collection(process.env.MONGODB_COLLECTION || 'restaurants')
+await col.deleteMany({})
+await col.insertMany(restaurants)
+console.log('Seed complete')
+await client.close()
+```
 
-- The app works without MongoDB using the bundled JSON dataset
-- All authentication features require MongoDB
-- Session cookies are HTTP-only and SameSite=Lax for security
-- Password hashing uses bcryptjs with salt rounds of 10
-- Infinite scroll loads 12 items per batch
-- Filtering works on both MongoDB and JSON fallback data
+---
 
-## 🤝 Contributing
+## Troubleshooting checklist
 
-This is a learning project. Feel free to fork and modify for your own use.
+* **Build fails**: Check Node version on Render matches local Node (`20` recommended). If using Docker, ensure build cache cleared.
+* **Mongo connection fails**: Whitelist Render outbound IPs in Atlas (Render publishes regions and static IP ranges — check their docs) or use Atlas' VPC Peering / Private Endpoint.
+* **Session issues**: Confirm `AUTH_SECRET` and cookie settings; verify production `NODE_ENV` behavior.
+* **404/500 pages**: Check `next.config` and that `basePath` (if used) is configured correctly.
 
-## 📄 License
+---
 
-This project is for educational purposes.
+## Scaling & cost tips
+
+* Start small (Starter plan) while testing. For SSR-heavy pages or large concurrency, scale to more CPU/RAM.
+* Use CDN for images and static assets (Vercel/Cloudflare/CloudFront) for faster performance.
+* Cache expensive API results (Redis or in-app memory cache) if request volume increases.
+
+---
+
+## Security & ops notes
+
+* Rotate `AUTH_SECRET` periodically — implement session rotation where possible.
+* Restrict any internal endpoints to internal-only or require a secret header.
+* Consider adding a basic rate limiter for unauthenticated endpoints.
+
+---
+
+## Final: quick deploy checklist
+
+1. Add `render.yaml` + `Dockerfile` to repo.
+2. Push to `main` branch.
+3. Connect repo to Render and enable auto-deploy (or create service manually and point to repo).
+4. Configure environment variables in Render dashboard.
+5. Add custom domain `rapideat.onrender.com` (or set CNAME) and ensure DNS points to Render.
+6. Run seed job (via cron entry or `npm run seed` in Render's shell).
+7. Open site — `https://rapideat.onrender.com`.
+
+---
+
+## Appendices
+
+### Minimal health endpoint (for Next 16 app dir)
+
+See Health check section.
+
+### Quick `render.yaml` explanation
+
+* `services`: list of Render services (web, workers, etc.)
+* `env`: `docker` or `node`
+* `envVars`: keys that Render will prompt you to fill in when creating/updating the service.
+* `cron`: optional scheduled commands (good for seeding or cleanup tasks)
+
+---
+
+If you'd like, I can also:
+
+* Generate a ready-to-commit `render.yaml` and `Dockerfile` customized to your repo (I will need the repo URL and confirm whether you prefer Docker or managed build).
+* Produce a minimal health-check `route.ts` and seed job file to commit.
+
+Good luck — your site should be reachable at `https://rapideat.onrender.com` once DNS and Render settings are complete.
