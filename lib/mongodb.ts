@@ -1,7 +1,7 @@
 import { MongoClient, Document } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB ?? 'resto-app';
+const dbName = process.env.MONGODB_DB ?? 'resto_app';
 
 declare global {
   var _mongoClientPromise: Promise<MongoClient> | undefined;
