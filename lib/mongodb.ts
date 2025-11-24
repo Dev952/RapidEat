@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, Document } from 'mongodb';
 
 const uri = process.env.MONGODB_URI;
 const dbName = process.env.MONGODB_DB ?? 'resto-app';
@@ -30,8 +30,7 @@ export const getMongoClient = async () => {
   return global._mongoClientPromise;
 };
 
-export const getMongoCollection = async <T>(collectionName: string) => {
+export const getMongoCollection = async <T extends Document>(collectionName: string) => {
   const client = await getMongoClient();
   return client.db(dbName).collection<T>(collectionName);
 };
-
