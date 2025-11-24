@@ -34,6 +34,11 @@ function hashToken(token: string) {
   return createHmac("sha256", AUTH_SECRET).update(token).digest("hex");
 }
 
+async function deleteSessionRecord(sessionToken: string) {
+  const sessions = await getSessionsCollection();
+  await sessions.deleteOne({ tokenHash: hashToken(sessionToken) });
+}
+
 // CREATE USER
 
 export async function createUser({
@@ -104,8 +109,7 @@ export async function destroySession(token?: string | null) {
   
   if (!sessionToken) return;
 
-  const sessions = await getSessionsCollection();
-  await sessions.deleteOne({ tokenHash: hashToken(sessionToken) });
+  await deleteSessionRecord(sessionToken);
 
   // ✅ FIXED: Already have cookieStore from above
   cookieStore.delete(SESSION_COOKIE);
@@ -144,7 +148,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
   });
 
   if (!session || session.expiresAt < new Date()) {
-    await destroySession(sessionToken);
+    await deleteSessionRecord(sessionToken);
     return null;
   }
 
@@ -154,7 +158,7 @@ export async function getCurrentUser(): Promise<SafeUser | null> {
   });
 
   if (!user) {
-    await destroySession(sessionToken);
+    await deleteSessionRecord(sessionToken);
     return null;
   }
 
