@@ -95,14 +95,16 @@ export async function registerAction(
       };
     }
 
-    const user = await createUser(parsed.data);
-    await createSession(user._id!);
+    // Create user but DO NOT create session
+    await createUser(parsed.data);
 
-    revalidatePath("/");
+    // No session, so user is NOT logged in
+    // No revalidate needed
+    // Frontend will redirect to login page
 
     return {
       status: "success",
-      message: "Welcome aboard! Redirecting...",
+      message: "Account created successfully! Redirecting to login...",
     };
   } catch (error) {
     console.error("[registerAction]", error);
@@ -113,6 +115,7 @@ export async function registerAction(
     };
   }
 }
+
 
 // LOGIN ACTION
 

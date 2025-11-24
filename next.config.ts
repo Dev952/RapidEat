@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  
+  // Fix for performance measurement error
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
+  
+  turbopack: {},
 };
 
 export default nextConfig;

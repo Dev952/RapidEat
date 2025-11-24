@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { sampleRestaurants } from "@/data/restaurants";
 import { Restaurant, SortKey } from "@/types/restaurant";
+import { useRouter } from "next/navigation";
 
 const PAGE_SIZE = 12;
 
@@ -28,7 +29,7 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const [minRating, setMinRating] = useState(0);
-  const [maxCost, setMaxCost] = useState(0); // 0 means no limit
+  const [maxCost, setMaxCost] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>("relevance");
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
@@ -82,7 +83,6 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
   const filteredRestaurants = useMemo(() => {
     let data = restaurants;
 
-    // Search filter - matches name, description, locality, or cuisines
     if (searchTerm) {
       const query = searchTerm.toLowerCase();
       data = data.filter((r) =>
@@ -93,17 +93,14 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
       );
     }
 
-    // Cuisine filter - must match at least one selected cuisine
     if (selectedCuisines.length > 0) {
       data = data.filter((r) => r.cuisines.some((c) => selectedCuisines.includes(c)));
     }
 
-    // Rating filter - must be greater than or equal to minimum rating
     if (minRating > 0) {
       data = data.filter((r) => r.rating >= minRating);
     }
 
-    // Cost filter - cost for two must be less than or equal to max cost
     if (maxCost > 0) {
       data = data.filter((r) => r.costForTwo <= maxCost);
     }
@@ -131,12 +128,10 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
     [sortedRestaurants, page]
   );
 
-  // Reset page when filters change
   useEffect(() => {
     setPage(1);
   }, [searchTerm, selectedCuisines, minRating, maxCost, sortKey]);
 
-  // Infinite scroll with Intersection Observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -160,7 +155,6 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
     };
   }, [paginatedRestaurants.length, sortedRestaurants.length]);
 
-  // Stats based on ALL restaurants (not filtered) - shows total available
   const totalRestaurants = restaurants.length;
   const topRatedCount = restaurants.filter((r) => r.rating >= 4.5).length;
   const vegCount = restaurants.filter((r) => r.isPureVeg).length;
@@ -502,7 +496,6 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
         {/* Restaurant Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {isLoading ? (
-            // Loading skeleton
             Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
@@ -586,7 +579,7 @@ export default function HomeClient({ currentUser }: HomeClientProps) {
         </div>
 
         {/* Empty State */}
-        {paginatedRestaurants.length === 0 && (
+        {paginatedRestaurants.length === 0 && !isLoading && (
           <div className="text-center py-20">
             <div className="text-6xl mb-4">🍽️</div>
             <h3 className="text-2xl font-bold mb-2">No restaurants found</h3>
